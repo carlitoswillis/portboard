@@ -1,0 +1,7 @@
+# local-only run notes
+docs/
+RUNNING.local.md
+
+.DS_Store
+node_modules/
+*.log
