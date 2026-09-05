@@ -21,9 +21,20 @@ Away from home, the same dashboard works over Tailscale at the tailnet hostname 
 
 Logs go to `~/Library/Logs/portboard.log`.
 
+## The design
+
+A patch panel. One jack per app: the port silkscreened large in a monospace,
+its lamp lit when the port is reachable from the phone and unlit when it only
+answers on the Mac, an engraved hairline, and the app's name on the strip below
+it. Two jacks per row on a phone, so a dozen apps clear the fold without a
+scroll; the grid widens on a laptop. Below it, "Everything else" opens a dense
+patch list of the ports you didn't put there — same lamps, same fixed-width port
+column. Graphite and warm concrete, no gradients, no shadows, no glow on the
+lamps; light and dark follow the device.
+
 ## Tips
 
 - Dev servers that bind localhost only (e.g. `next dev`) won't be reachable from the phone. Start them with `-H 0.0.0.0` (or the equivalent host flag) and their portboard links will work.
 - Set `PORTBOARD_PORT` to run the dashboard on a different port than 7777.
-- The "Your projects" section groups listeners whose working directory is under `~/workspace`; set `PORTBOARD_WORKSPACE` if your projects live elsewhere.
+- The top grid holds the ports named in `APP_NAMES` in `server.js` plus any listener whose working directory is under `~/workspace`; edit that map to name your own, and set `PORTBOARD_WORKSPACE` if your projects live elsewhere. Everything else goes in the drawer, named after the process holding the port.
 - Nothing is exposed to the public internet: the dashboard only listens on the Mac's local interfaces, reachable from your home LAN and your Tailscale tailnet.
