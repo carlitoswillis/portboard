@@ -94,32 +94,6 @@ function detectFramework(commandLine) {
   return null;
 }
 
-// The owner's apps, by the port each one lives on. A curated name beats a
-// directory name ("brain", not "AIA2ndBrain") and it is what the phone reads
-// first. A port that isn't here falls back to its project folder, then to the
-// process name — the row still tells you what is holding the port.
-const APP_NAMES = new Map([
-  [3000, 'Autojob'],
-  [3002, 'Brain'],
-  [4321, 'Dossier'],
-  [4400, 'OpenWiki'],
-  [4747, 'Taste'],
-  [7717, 'Termdeck'],
-  [7777, 'Portboard'],
-  [7788, 'Assistant'],
-  [7789, 'Deckhand'],
-  [7790, 'Algo tracker'],
-]);
-
-function sentenceCase(s) {
-  return s ? s[0].toUpperCase() + s.slice(1) : s;
-}
-
-function displayName(entry) {
-  if (APP_NAMES.has(entry.port)) return APP_NAMES.get(entry.port);
-  return sentenceCase(entry.project || entry.process) || 'Port ' + entry.port;
-}
-
 function projectFromCwd(cwd) {
   if (!cwd || !cwd.startsWith(WORKSPACE + '/')) return null;
   const rest = cwd.slice(WORKSPACE.length + 1);
@@ -189,7 +163,7 @@ async function scanPorts() {
     .map((e) => {
       const cwd = cwds.get(e.pid) || null;
       const fullCommand = commands.get(e.pid) || e.process || '';
-      const row = {
+      return {
         port: e.port,
         pid: e.pid,
         process: e.process || null,
@@ -200,17 +174,13 @@ async function scanPorts() {
         reachable: e.reachable,
         addr: e.addr || null,
       };
-      row.name = displayName(row);
-      row.named = APP_NAMES.has(row.port);
-      row.mine = row.project !== null || APP_NAMES.has(row.port);
-      return row;
     });
 
   return {
     host: os.hostname(),
     scannedAt: new Date().toISOString(),
-    projects: entries.filter((e) => e.mine),
-    other: entries.filter((e) => !e.mine),
+    projects: entries.filter((e) => e.project !== null),
+    other: entries.filter((e) => e.project === null),
   };
 }
 
@@ -220,349 +190,188 @@ const HTML = `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="dark light">
-<meta name="apple-mobile-web-app-title" content="Portboard">
-<title>Portboard</title>
+<title>portboard</title>
 <style>
-/* Nocturne, the estate's palette. Dark is the default; "Nocturne Day" follows
-   the device preference with the same tokens and the same semantics. */
 :root {
-  --bg-1: #0e1124;
-  --surface: #141a2e;
-  --veil-soft: #1a2037;
-  --text-hi: #ecebf4;
-  --text-mid: #a7acc4;
-  --text-lo: #7d83a1;
-  --now: #e3a866;
-  --now-line: rgba(227, 168, 102, 0.18);
-  --dur-fast: 90ms;
-  color-scheme: dark;
+  color-scheme: dark light;
+  --bg: #101214;
+  --panel: #16191c;
+  --border: #2a2e33;
+  --text: #d7dade;
+  --muted: #8a9098;
+  --accent: #4caf7d;
+  --amber: #c9973f;
 }
 @media (prefers-color-scheme: light) {
   :root {
-    --bg-1: #f5f2e9;
-    --surface: #fbf9f2;
-    --veil-soft: #e2dccb;
-    --text-hi: #2b2a35;
-    --text-mid: #565567;
-    --text-lo: #6b697f;
-    --now: #a06a24;
-    --now-line: rgba(160, 106, 36, 0.28);
-    color-scheme: light;
+    --bg: #f6f6f4;
+    --panel: #fdfdfc;
+    --border: #dcdcd7;
+    --text: #23262a;
+    --muted: #71767d;
+    --accent: #2e8b5f;
+    --amber: #a87828;
   }
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
-[hidden] { display: none !important; }
-html { background: var(--bg-1); }
 body {
-  background: var(--bg-1);
-  color: var(--text-hi);
-  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, sans-serif;
   font-size: 15px;
   line-height: 1.4;
-  -webkit-font-smoothing: antialiased;
-  -webkit-tap-highlight-color: transparent;
+  padding: 1.25rem 1rem 2rem;
 }
-main {
-  max-width: 520px;
-  margin: 0 auto;
-  padding-top: max(20px, env(safe-area-inset-top));
-  padding-bottom: max(28px, env(safe-area-inset-bottom));
-}
-/* One vertical rule: 16px, plus whatever the notch asks for. */
-.pad {
-  padding-left: max(16px, env(safe-area-inset-left));
-  padding-right: max(16px, env(safe-area-inset-right));
-}
-.head { padding-bottom: 14px; }
-.ctx {
-  font-size: 13px;
-  font-weight: 400;
-  color: var(--text-lo);
-  font-variant-numeric: tabular-nums;
-}
+main { max-width: 560px; margin: 0 auto; }
 h1 {
-  font-family: ui-serif, "New York", Georgia, serif;
-  font-size: 26px;
-  line-height: 1.1;
-  font-weight: 500;
-  letter-spacing: 0.005em;
-  margin-top: 2px;
+  font-family: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
+  font-size: 1rem;
+  font-weight: 600;
+  margin-bottom: 0.25rem;
 }
-
-/* the filter — only mounted when there are more rows than a screen holds */
-.filterbar {
-  position: sticky;
-  top: 0;
-  z-index: 2;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  background: var(--bg-1);
-  border-bottom: 1px solid var(--veil-soft);
+.host {
+  font-family: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
+  font-size: 0.75rem;
+  color: var(--muted);
+  margin-bottom: 1.25rem;
 }
-.filterbar input {
-  flex: 1;
-  min-width: 0;
-  height: 44px;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  color: var(--text-hi);
-  font: inherit;
-  font-size: 16px;
-  caret-color: var(--now);
+.section-label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  margin: 1.25rem 0 0.5rem;
 }
-.filterbar input::placeholder { color: var(--text-lo); }
-.filterbar input:focus { outline: none; }
-.filterbar:focus-within { border-bottom-color: var(--now-line); }
-.clear {
-  flex: none;
-  width: 44px;
-  height: 44px;
-  display: grid;
-  place-items: center;
-  border: 0;
-  background: transparent;
-  color: var(--text-mid);
+details > summary.section-label {
   cursor: pointer;
+  list-style: none;
 }
-.clear:active { color: var(--text-hi); }
-
-/* section heads */
-.sect {
+details > summary.section-label::before { content: "\\25B8\\00A0"; }
+details[open] > summary.section-label::before { content: "\\25BE\\00A0"; }
+.card {
   display: flex;
   align-items: center;
-  gap: 8px;
-  width: 100%;
-  min-height: 44px;
-  font-size: 13px;
-  font-weight: 590;
-  color: var(--text-mid);
-  text-align: left;
-  background: transparent;
-  border: 0;
-  font-family: inherit;
-  padding-top: 14px;
-  padding-bottom: 6px;
-}
-button.sect { cursor: pointer; }
-.sect .count {
-  margin-left: auto;
-  font-weight: 400;
-  color: var(--text-lo);
-  font-variant-numeric: tabular-nums;
-}
-.sect .chev {
-  flex: none;
-  color: var(--text-lo);
-  transition: transform var(--dur-fast) linear;
-}
-.sect[aria-expanded="true"] .chev { transform: rotate(90deg); }
-
-/* the ledger row: 56px, a hairline, name then a quiet figure */
-.row {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  align-items: center;
-  gap: 12px;
-  min-height: 56px;
-  padding-top: 8px;
-  padding-bottom: 8px;
-  border-bottom: 1px solid var(--veil-soft);
+  gap: 0.75rem;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.6rem 0.75rem;
+  margin-bottom: 0.5rem;
   color: inherit;
   text-decoration: none;
 }
-.row__text { min-width: 0; }
-.row__name {
-  display: block;
-  font-size: 15px;
-  line-height: 1.25;
-  font-weight: 500;
+a.card:hover { border-color: var(--muted); }
+.dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.dot.reachable { background: var(--accent); }
+.dot.local { background: transparent; border: 1.5px solid var(--amber); }
+.port {
+  flex: none;
+  font-family: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
+  font-size: 1.15rem;
+  font-weight: 600;
+  min-width: 3.2em;
+}
+.meta { min-width: 0; flex: 1; }
+.name {
+  font-weight: 600;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.row__meta {
-  display: block;
-  font-size: 13px;
-  line-height: 1.45;
-  color: var(--text-lo);
+.sub {
+  font-size: 0.78rem;
+  color: var(--muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.row__port {
-  font-size: 13px;
-  color: var(--text-lo);
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 0.01em;
-}
-/* Down, or up but out of reach from this phone: a luminance step, not a badge. */
-.row--dim .row__name { color: var(--text-mid); font-weight: 400; }
-a.row:active { background: var(--surface); }
-a.row:focus-visible { outline: 1px solid var(--text-mid); outline-offset: -1px; }
-@media (hover: hover) {
-  a.row:hover { background: var(--surface); }
-}
-.empty {
-  font-size: 13px;
-  color: var(--text-lo);
-  padding-top: 4px;
-  padding-bottom: 12px;
-}
-.status {
-  font-size: 11px;
-  line-height: 1.5;
-  color: var(--text-lo);
-  font-variant-numeric: tabular-nums;
-  padding-top: 18px;
-}
-.status.is-lost { color: var(--now); }
-@media (prefers-reduced-motion: reduce) {
-  * { transition: none !important; }
+.empty { color: var(--muted); font-size: 0.85rem; padding: 0.25rem 0; }
+footer {
+  margin-top: 1.5rem;
+  font-size: 0.75rem;
+  color: var(--muted);
 }
 </style>
 </head>
 <body>
 <main>
-  <header class="head pad">
-    <p class="ctx" id="host">&nbsp;</p>
-    <h1>Portboard</h1>
-  </header>
-
-  <div class="filterbar pad" id="filterbar" hidden>
-    <input id="filter" type="text" inputmode="search" autocomplete="off" autocorrect="off"
-           autocapitalize="none" spellcheck="false" placeholder="Filter" aria-label="Filter ports">
-    <button class="clear" id="clear" type="button" aria-label="Clear filter" hidden>
-      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-        <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
-      </svg>
-    </button>
-  </div>
-
-  <section>
-    <h2 class="sect pad" id="mine-head">Your apps</h2>
-    <div id="mine"></div>
-  </section>
-
-  <section>
-    <button class="sect pad" id="other-toggle" type="button" aria-expanded="false" aria-controls="other">
-      <svg class="chev" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-        <path d="M5.5 3.5L10.5 8l-5 4.5" stroke="currentColor" stroke-width="1.6"
-              stroke-linecap="round" stroke-linejoin="round"/>
-      </svg>
-      <span>Everything else</span>
-      <span class="count" id="other-count"></span>
-    </button>
-    <div id="other" hidden></div>
-  </section>
-
-  <p class="status pad" id="status">Reading ports</p>
+  <h1>portboard</h1>
+  <div class="host" id="host"></div>
+  <div class="section-label">Your projects</div>
+  <div id="projects"></div>
+  <details>
+    <summary class="section-label">Other listeners</summary>
+    <div id="other"></div>
+  </details>
+  <footer id="status">Loading…</footer>
 </main>
 <script>
 (function () {
   'use strict';
 
-  var FILTER_AT = 12; // a filter earns its place only past a screenful
-  var el = function (id) { return document.getElementById(id); };
-  var data = { host: '', projects: [], other: [] };
-  var query = '';
-  var open = false;
-
-  function hrefFor(entry) {
-    var host = location.hostname;
-    if (entry.addr) host = entry.addr.indexOf(':') !== -1 ? '[' + entry.addr + ']' : entry.addr;
-    return 'http://' + host + ':' + entry.port;
-  }
-
-  function metaFor(entry) {
-    if (!entry.reachable) return 'Local only';
-    if (entry.framework) return entry.framework;
-    // An app you named needs no second line; an unknown port is named by the
-    // process holding it, so there the process IS the information.
-    if (!entry.named && entry.process &&
-        entry.process.toLowerCase() !== entry.name.toLowerCase()) return entry.process;
-    return '';
-  }
-
-  function makeRow(entry) {
-    var row;
+  function makeCard(entry) {
+    var card;
     if (entry.reachable) {
-      row = document.createElement('a');
-      row.href = hrefFor(entry);
+      card = document.createElement('a');
+      var host = location.hostname;
+      if (entry.addr) {
+        host = entry.addr.indexOf(':') !== -1 ? '[' + entry.addr + ']' : entry.addr;
+      }
+      card.href = 'http://' + host + ':' + entry.port;
     } else {
-      row = document.createElement('div');
+      card = document.createElement('div');
     }
-    row.className = 'row pad' + (entry.reachable ? '' : ' row--dim');
+    card.className = 'card';
 
-    var text = document.createElement('span');
-    text.className = 'row__text';
-
-    var name = document.createElement('span');
-    name.className = 'row__name';
-    name.textContent = entry.name;
-    text.appendChild(name);
-
-    var metaText = metaFor(entry);
-    if (metaText) {
-      var meta = document.createElement('span');
-      meta.className = 'row__meta';
-      meta.textContent = metaText;
-      text.appendChild(meta);
-    }
-    row.appendChild(text);
+    var dot = document.createElement('span');
+    dot.className = 'dot ' + (entry.reachable ? 'reachable' : 'local');
+    card.appendChild(dot);
 
     var port = document.createElement('span');
-    port.className = 'row__port';
+    port.className = 'port';
     port.textContent = String(entry.port);
-    row.appendChild(port);
-    return row;
+    card.appendChild(port);
+
+    var meta = document.createElement('span');
+    meta.className = 'meta';
+
+    var name = document.createElement('span');
+    name.className = 'name';
+    name.textContent = entry.project || entry.process || 'pid ' + entry.pid;
+    meta.appendChild(name);
+
+    var sub = document.createElement('span');
+    sub.className = 'sub';
+    var subText = entry.framework || entry.process || entry.cwd || '';
+    if (!entry.reachable) {
+      subText = subText ? subText + ' \\u00b7 localhost only' : 'localhost only';
+    }
+    sub.textContent = subText;
+    if (subText) meta.appendChild(sub);
+
+    card.appendChild(meta);
+    return card;
   }
 
-  function matches(entry) {
-    if (!query) return true;
-    var hay = [entry.name, entry.process, entry.project, entry.framework, entry.port]
-      .join(' ').toLowerCase();
-    return hay.indexOf(query) !== -1;
-  }
-
-  function fill(node, entries, emptyText) {
-    node.textContent = '';
+  function renderList(el, entries) {
+    el.textContent = '';
     if (!entries.length) {
-      var p = document.createElement('p');
-      p.className = 'empty pad';
-      p.textContent = emptyText;
-      node.appendChild(p);
+      var empty = document.createElement('div');
+      empty.className = 'empty';
+      empty.textContent = 'None';
+      el.appendChild(empty);
       return;
     }
-    for (var i = 0; i < entries.length; i++) node.appendChild(makeRow(entries[i]));
-  }
-
-  function render() {
-    el('host').textContent = data.host;
-
-    var total = data.projects.length + data.other.length;
-    el('filterbar').hidden = total <= FILTER_AT;
-    el('clear').hidden = !query;
-
-    var mine = data.projects.filter(matches);
-    var rest = data.other.filter(matches);
-
-    fill(el('mine'), mine, query ? 'No app matches that.' : 'Nothing of yours is listening.');
-    fill(el('other'), rest, 'Nothing matches that.');
-
-    el('other-count').textContent = String(rest.length);
-    // A query opens the drawer, because what you are looking for may be in it.
-    var expanded = open || (query.length > 0 && rest.length > 0);
-    el('other-toggle').setAttribute('aria-expanded', expanded ? 'true' : 'false');
-    el('other').hidden = !expanded;
-  }
-
-  function stamp(d) {
-    var t = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-    return t.replace('AM', 'am').replace('PM', 'pm');
+    for (var i = 0; i < entries.length; i++) {
+      el.appendChild(makeCard(entries[i]));
+    }
   }
 
   function refresh() {
@@ -571,35 +380,18 @@ a.row:focus-visible { outline: 1px solid var(--text-mid); outline-offset: -1px; 
         if (!res.ok) throw new Error('HTTP ' + res.status);
         return res.json();
       })
-      .then(function (payload) {
-        data = payload;
-        render();
-        var s = el('status');
-        s.className = 'status pad';
-        s.textContent = 'Updated ' + stamp(new Date());
+      .then(function (data) {
+        document.getElementById('host').textContent = data.host;
+        renderList(document.getElementById('projects'), data.projects);
+        renderList(document.getElementById('other'), data.other);
+        document.getElementById('status').textContent =
+          'Updated ' + new Date().toLocaleTimeString();
       })
       .catch(function () {
-        var s = el('status');
-        s.className = 'status pad is-lost';
-        s.textContent = 'Portboard stopped answering, retrying every five seconds';
+        document.getElementById('status').textContent =
+          'Lost connection to portboard \\u2014 retrying\\u2026';
       });
   }
-
-  el('filter').addEventListener('input', function (e) {
-    query = e.target.value.trim().toLowerCase();
-    render();
-  });
-  el('clear').addEventListener('click', function () {
-    var input = el('filter');
-    input.value = '';
-    query = '';
-    render();
-    input.focus();
-  });
-  el('other-toggle').addEventListener('click', function () {
-    open = el('other-toggle').getAttribute('aria-expanded') !== 'true';
-    render();
-  });
 
   refresh();
   setInterval(refresh, 5000);
