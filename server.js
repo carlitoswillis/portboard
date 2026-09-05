@@ -94,6 +94,27 @@ function detectFramework(commandLine) {
   return null;
 }
 
+// The owner's apps, by the port each one lives on. A curated name beats a
+// directory name, and it is the word the phone reads first. A port that isn't
+// here falls back to its project folder, then to the process holding it, so a
+// tile always says what it is.
+const APP_NAMES = new Map([
+  [3000, 'autojob'],
+  [3002, 'brain'],
+  [4321, 'dossier'],
+  [4400, 'openwiki'],
+  [4747, 'taste'],
+  [7717, 'termdeck'],
+  [7777, 'portboard'],
+  [7788, 'assistant'],
+  [7789, 'deckhand'],
+  [7790, 'algo-tracker'],
+]);
+
+function displayName(entry) {
+  return APP_NAMES.get(entry.port) || entry.project || entry.process || 'pid ' + entry.pid;
+}
+
 function projectFromCwd(cwd) {
   if (!cwd || !cwd.startsWith(WORKSPACE + '/')) return null;
   const rest = cwd.slice(WORKSPACE.length + 1);
@@ -163,7 +184,7 @@ async function scanPorts() {
     .map((e) => {
       const cwd = cwds.get(e.pid) || null;
       const fullCommand = commands.get(e.pid) || e.process || '';
-      return {
+      const row = {
         port: e.port,
         pid: e.pid,
         process: e.process || null,
@@ -174,13 +195,16 @@ async function scanPorts() {
         reachable: e.reachable,
         addr: e.addr || null,
       };
+      row.name = displayName(row);
+      row.mine = APP_NAMES.has(row.port) || row.project !== null;
+      return row;
     });
 
   return {
     host: os.hostname(),
     scannedAt: new Date().toISOString(),
-    projects: entries.filter((e) => e.project !== null),
-    other: entries.filter((e) => e.project === null),
+    apps: entries.filter((e) => e.mine),
+    other: entries.filter((e) => !e.mine),
   };
 }
 
@@ -190,188 +214,301 @@ const HTML = `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="dark light">
+<meta name="apple-mobile-web-app-title" content="portboard">
 <title>portboard</title>
 <style>
+/* A patch panel. Numbered jacks in a strip, a silkscreened label engraved
+   under each one, and a lamp that is lit or unlit — never a second colour. */
 :root {
   color-scheme: dark light;
-  --bg: #101214;
-  --panel: #16191c;
-  --border: #2a2e33;
-  --text: #d7dade;
-  --muted: #8a9098;
-  --accent: #4caf7d;
-  --amber: #c9973f;
+  --ground: #171819;
+  --panel: #232528;
+  --rule: #3b3e44;
+  --rule-soft: #31343a;
+  --ink: #e8e5df;
+  --ink-dim: #9a968e;
+  --lamp: #4fbf7f;
+  --lamp-off: #4c4f54;
+  --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
+  --label: "Avenir Next Condensed", "Avenir Next", "Helvetica Neue", system-ui, sans-serif;
 }
 @media (prefers-color-scheme: light) {
   :root {
-    --bg: #f6f6f4;
-    --panel: #fdfdfc;
-    --border: #dcdcd7;
-    --text: #23262a;
-    --muted: #71767d;
-    --accent: #2e8b5f;
-    --amber: #a87828;
+    --ground: #e5e3dc;
+    --panel: #f7f5f1;
+    --rule: #cbc8bf;
+    --rule-soft: #d9d6ce;
+    --ink: #26262a;
+    --ink-dim: #6d6a64;
+    --lamp: #1d8b53;
+    --lamp-off: #c2bfb7;
   }
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
+html { background: var(--ground); }
 body {
-  background: var(--bg);
-  color: var(--text);
-  font-family: system-ui, sans-serif;
+  background: var(--ground);
+  color: var(--ink);
+  font-family: var(--label);
   font-size: 15px;
-  line-height: 1.4;
-  padding: 1.25rem 1rem 2rem;
+  line-height: 1.35;
+  -webkit-text-size-adjust: 100%;
+  padding:
+    calc(18px + env(safe-area-inset-top))
+    calc(16px + env(safe-area-inset-right))
+    calc(26px + env(safe-area-inset-bottom))
+    calc(16px + env(safe-area-inset-left));
 }
-main { max-width: 560px; margin: 0 auto; }
-h1 {
-  font-family: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
-  font-size: 1rem;
-  font-weight: 600;
-  margin-bottom: 0.25rem;
-}
-.host {
-  font-family: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
-  font-size: 0.75rem;
-  color: var(--muted);
-  margin-bottom: 1.25rem;
-}
-.section-label {
-  font-size: 0.7rem;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--muted);
-  margin: 1.25rem 0 0.5rem;
-}
-details > summary.section-label {
-  cursor: pointer;
-  list-style: none;
-}
-details > summary.section-label::before { content: "\\25B8\\00A0"; }
-details[open] > summary.section-label::before { content: "\\25BE\\00A0"; }
-.card {
+main { max-width: 720px; margin: 0 auto; }
+
+/* nameplate ------------------------------------------------------------- */
+.plate {
   display: flex;
-  align-items: center;
-  gap: 0.75rem;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 14px;
+  font-family: var(--mono);
+  padding-bottom: 9px;
+  border-bottom: 1px solid var(--rule);
+}
+.plate b { font-size: 13.5px; font-weight: 600; letter-spacing: 0.01em; }
+.plate span {
+  font-size: 12px;
+  color: var(--ink-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.readout {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--ink-dim);
+  margin: 9px 0 14px;
+}
+
+/* the jacks -------------------------------------------------------------- */
+.panel {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
+  gap: 9px;
+}
+.jack {
+  position: relative;
+  display: block;
+  min-height: 78px;
+  padding: 8px 11px 9px;
   background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 0.6rem 0.75rem;
-  margin-bottom: 0.5rem;
+  border: 1px solid var(--rule-soft);
+  border-radius: 4px;
   color: inherit;
   text-decoration: none;
 }
-a.card:hover { border-color: var(--muted); }
-.dot {
-  flex: none;
-  width: 8px;
-  height: 8px;
+.jack .num {
+  display: block;
+  font-family: var(--mono);
+  font-size: 26px;
+  line-height: 30px;
+  font-weight: 500;
+  letter-spacing: -0.015em;
+  font-variant-numeric: tabular-nums;
+}
+.jack .lamp {
+  position: absolute;
+  top: 18px;
+  right: 11px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
+  background: var(--lamp);
 }
-.dot.reachable { background: var(--accent); }
-.dot.local { background: transparent; border: 1.5px solid var(--amber); }
-.port {
+.jack .engrave {
+  display: block;
+  height: 0;
+  margin: 7px -11px 0;
+  border-top: 1px solid var(--rule);
+}
+.jack .label {
+  display: block;
+  margin-top: 7px;
+  font-size: 14.5px;
+  font-weight: 500;
+  line-height: 17px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.jack.off .num, .jack.off .label { color: var(--ink-dim); }
+.jack.off .lamp { background: var(--lamp-off); }
+a.jack:active { background: var(--rule-soft); }
+@media (hover: hover) {
+  a.jack:hover { border-color: var(--ink-dim); }
+}
+a.jack:focus-visible, summary:focus-visible, a.row:focus-visible {
+  outline: 2px solid var(--lamp);
+  outline-offset: 2px;
+}
+
+/* everything else -------------------------------------------------------- */
+details { margin-top: 18px; }
+summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  list-style: none;
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  color: var(--ink-dim);
+  border-top: 1px solid var(--rule);
+}
+summary::-webkit-details-marker { display: none; }
+summary::before { content: "\\25B8"; font-size: 9px; }
+details[open] summary::before { content: "\\25BE"; }
+.row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+  padding: 0 1px;
+  color: inherit;
+  text-decoration: none;
+  border-top: 1px solid var(--rule-soft);
+}
+.row .lamp {
   flex: none;
-  font-family: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
-  font-size: 1.15rem;
-  font-weight: 600;
-  min-width: 3.2em;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--lamp);
 }
-.meta { min-width: 0; flex: 1; }
-.name {
-  font-weight: 600;
+.row.off .lamp { background: var(--lamp-off); }
+.row .num {
+  flex: none;
+  min-width: 5ch;
+  font-family: var(--mono);
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+}
+.row .label {
+  min-width: 0;
+  font-size: 14px;
+  color: var(--ink-dim);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.sub {
-  font-size: 0.78rem;
-  color: var(--muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.row.off .num { color: var(--ink-dim); }
+a.row:active { background: var(--rule-soft); }
+
+.empty {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  color: var(--ink-dim);
+  padding: 12px 0;
 }
-.empty { color: var(--muted); font-size: 0.85rem; padding: 0.25rem 0; }
 footer {
-  margin-top: 1.5rem;
-  font-size: 0.75rem;
-  color: var(--muted);
+  margin-top: 18px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--ink-dim);
 }
 </style>
 </head>
 <body>
 <main>
-  <h1>portboard</h1>
-  <div class="host" id="host"></div>
-  <div class="section-label">Your projects</div>
-  <div id="projects"></div>
+  <div class="plate"><b>portboard</b><span id="host"></span></div>
+  <p class="readout" id="readout">Scanning the machine</p>
+  <div class="panel" id="apps"></div>
   <details>
-    <summary class="section-label">Other listeners</summary>
+    <summary id="othersummary">Everything else</summary>
     <div id="other"></div>
   </details>
-  <footer id="status">Loading…</footer>
+  <footer id="status"></footer>
 </main>
 <script>
 (function () {
   'use strict';
 
-  function makeCard(entry) {
-    var card;
-    if (entry.reachable) {
-      card = document.createElement('a');
-      var host = location.hostname;
-      if (entry.addr) {
-        host = entry.addr.indexOf(':') !== -1 ? '[' + entry.addr + ']' : entry.addr;
-      }
-      card.href = 'http://' + host + ':' + entry.port;
-    } else {
-      card = document.createElement('div');
+  function hrefFor(entry) {
+    var host = location.hostname;
+    if (entry.addr) {
+      host = entry.addr.indexOf(':') !== -1 ? '[' + entry.addr + ']' : entry.addr;
     }
-    card.className = 'card';
-
-    var dot = document.createElement('span');
-    dot.className = 'dot ' + (entry.reachable ? 'reachable' : 'local');
-    card.appendChild(dot);
-
-    var port = document.createElement('span');
-    port.className = 'port';
-    port.textContent = String(entry.port);
-    card.appendChild(port);
-
-    var meta = document.createElement('span');
-    meta.className = 'meta';
-
-    var name = document.createElement('span');
-    name.className = 'name';
-    name.textContent = entry.project || entry.process || 'pid ' + entry.pid;
-    meta.appendChild(name);
-
-    var sub = document.createElement('span');
-    sub.className = 'sub';
-    var subText = entry.framework || entry.process || entry.cwd || '';
-    if (!entry.reachable) {
-      subText = subText ? subText + ' \\u00b7 localhost only' : 'localhost only';
-    }
-    sub.textContent = subText;
-    if (subText) meta.appendChild(sub);
-
-    card.appendChild(meta);
-    return card;
+    return 'http://' + host + ':' + entry.port;
   }
 
-  function renderList(el, entries) {
+  // A jack: the port silkscreened big, its lamp, an engraved rule, the name.
+  function makeJack(entry) {
+    var el = document.createElement(entry.reachable ? 'a' : 'div');
+    el.className = 'jack' + (entry.reachable ? '' : ' off');
+    if (entry.reachable) el.href = hrefFor(entry);
+
+    var lamp = document.createElement('span');
+    lamp.className = 'lamp';
+    el.appendChild(lamp);
+
+    var num = document.createElement('span');
+    num.className = 'num';
+    num.textContent = String(entry.port);
+    el.appendChild(num);
+
+    var rule = document.createElement('span');
+    rule.className = 'engrave';
+    el.appendChild(rule);
+
+    var label = document.createElement('span');
+    label.className = 'label';
+    label.textContent = entry.name;
+    el.appendChild(label);
+
+    if (!entry.reachable) el.title = entry.name + ' listens on localhost only';
+    return el;
+  }
+
+  function makeRow(entry) {
+    var el = document.createElement(entry.reachable ? 'a' : 'div');
+    el.className = 'row' + (entry.reachable ? '' : ' off');
+    if (entry.reachable) el.href = hrefFor(entry);
+
+    var lamp = document.createElement('span');
+    lamp.className = 'lamp';
+    el.appendChild(lamp);
+
+    var num = document.createElement('span');
+    num.className = 'num';
+    num.textContent = String(entry.port);
+    el.appendChild(num);
+
+    var label = document.createElement('span');
+    label.className = 'label';
+    label.textContent = entry.name;
+    el.appendChild(label);
+
+    return el;
+  }
+
+  function render(el, entries, make, emptyText) {
     el.textContent = '';
     if (!entries.length) {
-      var empty = document.createElement('div');
+      var empty = document.createElement('p');
       empty.className = 'empty';
-      empty.textContent = 'None';
+      empty.textContent = emptyText;
       el.appendChild(empty);
       return;
     }
-    for (var i = 0; i < entries.length; i++) {
-      el.appendChild(makeCard(entries[i]));
-    }
+    for (var i = 0; i < entries.length; i++) el.appendChild(make(entries[i]));
+  }
+
+  function readout(apps) {
+    if (!apps.length) return 'Nothing of yours is listening right now';
+    var dark = 0;
+    for (var i = 0; i < apps.length; i++) if (!apps[i].reachable) dark++;
+    var head = apps.length + (apps.length === 1 ? ' app up' : ' apps up');
+    if (!dark) return head;
+    return head + ', ' + dark + (dark === 1 ? ' only opens on the Mac' : ' only open on the Mac');
   }
 
   function refresh() {
@@ -381,15 +518,20 @@ footer {
         return res.json();
       })
       .then(function (data) {
-        document.getElementById('host').textContent = data.host;
-        renderList(document.getElementById('projects'), data.projects);
-        renderList(document.getElementById('other'), data.other);
+        document.getElementById('host').textContent = data.host.replace(/\\.local$/, '');
+        document.getElementById('readout').textContent = readout(data.apps);
+        render(document.getElementById('apps'), data.apps, makeJack,
+          'Nothing of yours is listening right now.');
+        render(document.getElementById('other'), data.other, makeRow,
+          'Nothing else is listening.');
+        document.getElementById('othersummary').textContent =
+          'Everything else (' + data.other.length + ')';
         document.getElementById('status').textContent =
           'Updated ' + new Date().toLocaleTimeString();
       })
       .catch(function () {
         document.getElementById('status').textContent =
-          'Lost connection to portboard \\u2014 retrying\\u2026';
+          'No answer from portboard on the Mac. Retrying every five seconds.';
       });
   }
 
