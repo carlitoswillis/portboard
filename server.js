@@ -135,7 +135,27 @@ function isReachableAddr(addr) {
 
 // -- scan -------------------------------------------------------------------
 
+// Demo mode (PORTBOARD_DEMO=1): a fixed fictional list instead of a real scan,
+// so screenshots and docs never show a real machine.
+function demoScan() {
+  const mk = (port, name, process, reachable = true) => ({
+    port, pid: 1000 + port % 997, process, project: name, reachable, addr: null, name, mine: true,
+  });
+  const apps = [
+    mk(3000, 'notes', 'node'), mk(3100, 'photos', 'node'), mk(4000, 'budget', 'python'),
+    mk(5173, 'recipes', 'node'), mk(7000, 'garden-cam', 'python', false), mk(7100, 'music', 'node'),
+    mk(7300, 'reading', 'node'), mk(8080, 'home', 'node'), mk(8443, 'backups', 'ruby', false),
+  ];
+  const other = [
+    { ...mk(5432, 'postgres', 'postgres'), project: null, name: 'postgres', mine: false },
+    { ...mk(6379, 'redis-server', 'redis-server'), project: null, name: 'redis-server', mine: false },
+    { ...mk(11434, 'ollama', 'ollama', false), project: null, name: 'ollama', mine: false },
+  ];
+  return { host: 'studio-mac', scannedAt: new Date().toISOString(), apps, other };
+}
+
 async function scanPorts() {
+  if (process.env.PORTBOARD_DEMO) return demoScan();
   const lsofOut = await run('lsof', ['-iTCP', '-sTCP:LISTEN', '-P', '-n', '-F', 'pcn']);
   const rows = parseListeners(lsofOut);
 

@@ -1,5 +1,7 @@
 # local-only run notes
-docs/
+docs/*
+!docs/portboard-phone.png
+!docs/portboard-desktop.png
 RUNNING.local.md
 
 .DS_Store
